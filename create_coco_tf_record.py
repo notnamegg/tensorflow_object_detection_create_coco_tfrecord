@@ -37,6 +37,7 @@ flags.DEFINE_string('data_dir', '', 'Root directory to raw Microsoft COCO datase
 flags.DEFINE_string('set', 'train', 'Convert training set or validation set')
 flags.DEFINE_string('output_filepath', '', 'Path to output TFRecord')
 flags.DEFINE_bool('shuffle_imgs',True,'whether to shuffle images of coco')
+flags.DEFINE_bool('resize_flag',1,'whether to resize images of coco')
 FLAGS = flags.FLAGS
 
 def resize_frcnn(infile,outfile, target_max = 1024, target_min = 600):
@@ -76,7 +77,7 @@ def resize_frcnn(infile,outfile, target_max = 1024, target_min = 600):
     except IOError:
        print("cannot create thumbnail for '%s'" % infile)
 
-def load_coco_dection_dataset(imgs_dir, annotations_filepath, shuffle_img = True):
+def load_coco_dection_dataset(imgs_dir, annotations_filepath, shuffle_img = True, resize_flag = 1):
     """Load data from dataset by pycocotools. This tools can be download from "http://mscoco.org/dataset/#download"
     Args:
         imgs_dir: directories of coco images
@@ -97,7 +98,7 @@ def load_coco_dection_dataset(imgs_dir, annotations_filepath, shuffle_img = True
     coco_data_V = []
 
     nb_imgs = len(img_ids)
-    test=1
+    labeld ={}
     print("load_coco_dection_dataset")
     for index, img_id in enumerate(img_ids):
         if index % 100 == 0:
@@ -119,7 +120,8 @@ def load_coco_dection_dataset(imgs_dir, annotations_filepath, shuffle_img = True
         imgout_path = os.path.join(imgs_dir+"/out/", img_detail['file_name'])
         ratio=1.0
         org=[0,0]
-        if test == 1:
+        newsize= [pic_width,pic_height]
+        if resize_flag == 1:
             print("resize_frcnn"+str(index))
             ratio,org,newsize= resize_frcnn(img_path,imgout_path)
             # print(imgout_path)
@@ -145,6 +147,10 @@ def load_coco_dection_dataset(imgs_dir, annotations_filepath, shuffle_img = True
             # print(str(bboxes_data))
             bboxes.append(bboxes_data)
             labels.append(ann['category_id'])
+            if ann['category_id'] in labeld:
+                labeld[ann['category_id']] += 1
+            else:
+                labeld[ann['category_id']]=1
 
         img_bytes = tf.gfile.FastGFile(img_path,'rb').read()
 
@@ -154,11 +160,14 @@ def load_coco_dection_dataset(imgs_dir, annotations_filepath, shuffle_img = True
         img_info['bboxes'] = bboxes
         img_info['labels'] = labels
 
-        # coco_data.append(img_info)
-        if newsize[1] >= newsize[0]:
-            coco_data_H.append(img_info)
+        if resize_flag != 1:
+                coco_data_H.append(img_info)
         else:
-            coco_data_V.append(img_info)
+                if newsize[1] >= newsize[0]:
+                    coco_data_H.append(img_info)
+                else:
+                    coco_data_V.append(img_info)
+    print(labeld)
     return coco_data_H, coco_data_V
 
 
@@ -203,23 +212,32 @@ def main(_):
     else:
         raise ValueError("you must either convert train data or val data")
     # load total coco data
-    coco_data_H, coco_data_V = load_coco_dection_dataset(imgs_dir,annotations_filepath,shuffle_img=FLAGS.shuffle_imgs)
+    coco_data_H, coco_data_V = load_coco_dection_dataset(imgs_dir,annotations_filepath,shuffle_img=FLAGS.shuffle_imgs,resize_flag=FLAGS.resize_flag)
     total_imgs_H = len(coco_data_H)
     total_imgs_V = len(coco_data_V)
     # write coco data to tf record
-    with tf.python_io.TFRecordWriter(FLAGS.output_filepath+"H") as tfrecord_writer:
-        for index, img_data in enumerate(coco_data_H):
-            if index % 100 == 0:
-                print("Converting images: %d / %d" % (index, total_imgs_H))
-            example = dict_to_coco_example(img_data)
-            tfrecord_writer.write(example.SerializeToString())
-    with tf.python_io.TFRecordWriter(FLAGS.output_filepath+"V") as tfrecord_writer:
-        for index, img_data in enumerate(coco_data_V):
-            if index % 100 == 0:
-                print("Converting images: %d / %d" % (index, total_imgs_V))
-            example = dict_to_coco_example(img_data)
-            tfrecord_writer.write(example.SerializeToString())
-    print("Converting images H, V: %d , %d" % (total_imgs_H, total_imgs_V))
+    if FLAGS.resize_flag == 1:
+        with tf.python_io.TFRecordWriter(FLAGS.output_filepath+"H") as tfrecord_writer:
+            for index, img_data in enumerate(coco_data_H):
+                if index % 100 == 0:
+                    print("Converting images: %d / %d" % (index, total_imgs_H))
+                example = dict_to_coco_example(img_data)
+                tfrecord_writer.write(example.SerializeToString())
+        with tf.python_io.TFRecordWriter(FLAGS.output_filepath+"V") as tfrecord_writer:
+            for index, img_data in enumerate(coco_data_V):
+                if index % 100 == 0:
+                    print("Converting images: %d / %d" % (index, total_imgs_V))
+                example = dict_to_coco_example(img_data)
+                tfrecord_writer.write(example.SerializeToString())
+        print("Converting images H, V: %d , %d" % (total_imgs_H, total_imgs_V))
+    else:
+        with tf.python_io.TFRecordWriter(FLAGS.output_filepath) as tfrecord_writer:
+            for index, img_data in enumerate(coco_data_H):
+                if index % 100 == 0:
+                    print("Converting images: %d / %d" % (index, total_imgs_H))
+                example = dict_to_coco_example(img_data)
+                tfrecord_writer.write(example.SerializeToString())
+        print("Converting images : %d " % (total_imgs_H))
 
 
 if __name__ == "__main__":
